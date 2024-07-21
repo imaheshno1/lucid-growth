@@ -1,40 +1,56 @@
-import requests
-from bs4 import BeautifulSoup
-import csv
+import openai
+import pandas as pd
 
-def scrape_website(url):
-    response = requests.get(url)
-    soup = BeautifulSoup(response.content, 'html.parser')
-    # This is a basic scraper. We'll need to adjust it based on the specific structure of each website.
-    return soup
+openai.api_key = "sk-None-zSwLA9mo3oKXeQIxyfDiT3BlbkFJ7jUS3aRcElyRcVPGsXRJ"
 
-def process_company_data(soup):
-    # This function will need to be customized for each website
-    companies = []
-    # Example: Finding all company divs
-    company_divs = soup.find_all('div', class_='company')
-    for div in company_divs:
-        name = div.find('h2').text.strip()
-        website = div.find('a')['href']
-        location = div.find('p', class_='location').text.strip()
-        services = div.find('ul', class_='services').text.strip()
-        companies.append({
-            'name': name,
-            'website': website,
-            'location': location,
-            'services': services
-        })
-    return companies
+def categorize_competitor(competitor_data):
+    """
+    Sends a prompt to the GPT model to categorize a competitor's services,
+    handling potential API errors and empty responses.
 
-def save_to_csv(companies, filename):
-    with open(filename, 'w', newline='') as file:
-        writer = csv.DictWriter(file, fieldnames=['name', 'website', 'location', 'services'])
-        writer.writeheader()
-        for company in companies:
-            writer.writerow(company)
+    Args:
+        competitor_data (dict): A dictionary containing competitor information.
 
-# Example usage
-url = 'https://example-conference-website.com/sponsors'
-soup = scrape_website(url)
-companies = process_company_data(soup)
-save_to_csv(companies, 'email_service_companies.csv')
+    Returns:
+        str (or None): The predicted category or None if an error occurs.
+    """
+    prompt = f"This competitor, {competitor_data['Name']}, offers services including {competitor_data['Description']}. What category of services does this competitor most likely fall under (e.g., bulk email sending, MTA management, email delivery optimization)?"
+
+    try:
+        response = openai.Completion.create(
+            engine="text-davinci-003",  # Adjust engine as needed
+            prompt=prompt,
+            max_tokens=100,  # Adjust maximum response length if needed
+            n=1,
+            stop=None,
+            temperature=0.7  # Adjust temperature for creativity vs. accuracy
+        )
+        if response.choices and response.choices[0].text:
+            return response.choices[0].text.strip().split("\n")[-1]
+        else:
+            return None  # Indicate error or empty response
+
+    except openai.error.OpenAIError as e:
+        print(f"Error categorizing competitor: {e}")
+        return None
+
+def main():
+    # Load competitor data from CSV file (adjust path and columns)
+    try:
+        df = pd.read_csv("/mnt/data/Find-Companies-Table-(17-July-2024)-Default-View-export-1721205032800.csv")
+    except FileNotFoundError:
+        print("Error: Competitor CSV file not found. Please check the path.")
+        return
+
+    # Apply the categorization function to each row
+    df["Category"] = df.apply(lambda row: categorize_competitor(row.to_dict()), axis=1)
+
+    # Filter competitors based on category (optional)
+    filtered_df = df[df["Category"].isin(["bulk email sending", "MTA management", "email delivery optimization"])]
+
+    # Print or save the categorized and (optionally) filtered data
+    print(df.to_string())  # Print all data
+    filtered_df.to_csv("/mnt/data/categorized_competitors.csv", index=False)  # Save filtered data
+
+if __name__ == "_main_":
+    main()
